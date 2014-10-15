@@ -16,6 +16,7 @@
 
 import logging
 import os
+import socket
 import shutil
 import tempfile
 import time
@@ -129,6 +130,33 @@ class ImageBuilder(object):
         with cd(tempdir):
             sudo('PACKER_LOG=1 && ./packer build packer_config.json')
 
+    def _get_image_from_remote(self):
+        output = execute(ImageBuilder.get_image_from_remote,
+                         self._build_instance_settings,
+                         hosts=[self._build_instance_ip])
+
+    @staticmethod
+    def get_image_from_remote(build_dir_name):
+        os.makedirs(build_dir_name)
+        with cd(tempdir):
+            get('packer_output', build_dir_name)
+
+    def _wait_for_ssh(self):
+        interval = 5
+        retries = 60
+        count = 0
+
+        for x in range(retries):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                result = sock.connect((self._build_instance_ip, 22))
+                time.sleep(interval) # give an extra 5 secs to get going
+                return True
+            except socket.error as e:
+                print "SSH not available yet..."
+                time.sleep(interval)
+        return False
+
     def build(self):
         # build an instance to work with
         self._get_nova_client()
@@ -137,8 +165,8 @@ class ImageBuilder(object):
         LOG.info("Attaching a floating IP")
         self._attach_floating_ip()
 
-        #FIXME: need towait for SSH
-        time.sleep(60)
+        if not self._wait_for_ssh():
+            raise Exception("SSH never became available")
 
         # now start provisioning on that instance
         env.user = self._build_instance_settings.user
@@ -148,6 +176,7 @@ class ImageBuilder(object):
         self._install_builder_requirements()
         self._copy_files_to_builder()
         self._run_packer()
+        self._get_image_from_remote()
 
 
 from imagecreator.builders.rhel import RhelImageBuilder
