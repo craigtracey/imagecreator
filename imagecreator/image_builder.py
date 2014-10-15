@@ -16,6 +16,8 @@
 
 import logging
 import os
+import shutil
+import tempfile
 import time
 
 from fabric.api import cd, env, execute, put, run, sudo
@@ -107,10 +109,16 @@ class ImageBuilder(object):
 
     @staticmethod
     def copy_files_to_builder(tempdir, packer_config, kickstart_path):
+        local_tempdir = tempfile.mkdtemp()
+        local_packer_path = os.path.join(local_tempdir, 'packer_config.json')
+        with open(local_packer_path, 'w') as f:
+            f.write(packer_config)
+
         with cd(tempdir):
             run('mkdir httpdir')
             put(kickstart_path, 'httpdir/kickstart.cfg')
-            run("echo '%s' > packer_config.json" % (packer_config))
+            put(local_packer_path, 'packer_config.json')
+        shutil.rmtree(local_tempdir)
 
     def _run_packer(self):
         execute(ImageBuilder.run_packer, self._build_tempdir,
